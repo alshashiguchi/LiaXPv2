@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  liaxp-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: liaxp-api
+    ports:
+      - "8080:80"
+      - "8443:443"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:80
+      
+      # Database
+      - AZURE_SQL_CONNECTIONSTRING=${AZURE_SQL_CONNECTIONSTRING}
+      
+      # JWT
+      - JWT_ISSUER=${JWT_ISSUER:-self}
+      - JWT_SIGNING_KEY=${JWT_SIGNING_KEY}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-liaxp-api}
+      - JWT_ACCESS_TOKEN_TTL_MIN=${JWT_ACCESS_TOKEN_TTL_MIN:-30}
+      
+      # WhatsApp - Twilio
+      - WHATS_PROVIDER=${WHATS_PROVIDER:-twilio}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_FROM=${TWILIO_FROM:-whatsapp:+14155238886}
+      
+      # WhatsApp - Meta Cloud API
+      - META_WA_TOKEN=${META_WA_TOKEN}
+      - META_WA_PHONE_ID=${META_WA_PHONE_ID}
+      - META_WA_VERIFY_TOKEN=${META_WA_VERIFY_TOKEN}
+      - META_WA_APP_SECRET=${META_WA_APP_SECRET}
+      
+      # HITL
+      - REVIEW_REQUIRED=${REVIEW_REQUIRED:-true}
+      - WHATS_SEND_ON_APPROVE=${WHATS_SEND_ON_APPROVE:-true}
+      - DATA_STALE_BLOCK=${DATA_STALE_BLOCK:-true}
+      - ADMIN_WHITELIST_PHONES=${ADMIN_WHITELIST_PHONES}
+      
+      # Rate Limiting
+      - RATE_LIMIT_AUTHENTICATED_PER_MIN=${RATE_LIMIT_AUTHENTICATED_PER_MIN:-60}
+      - RATE_LIMIT_PUBLIC_PER_MIN=${RATE_LIMIT_PUBLIC_PER_MIN:-30}
+    
+    volumes:
+      - ./logs:/app/logs
+    
+    restart: unless-stopped
+    
+    networks:
+      - liaxp-network
+
+networks:
+  liaxp-network:
+    driver: bridge
