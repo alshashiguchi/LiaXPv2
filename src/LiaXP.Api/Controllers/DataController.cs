@@ -22,68 +22,68 @@ public class DataController : ControllerBase
         _importExcelUseCase = importExcelUseCase;
     }
 
-    /// <summary>
-    /// Import data from Excel file
-    /// </summary>
-    [HttpPost("import/xlsx")]
-    public async Task<IActionResult> ImportExcel(
-        [FromForm] IFormFile file,
-        [FromQuery] bool retrain = false)
-    {
-        if (file == null || file.Length == 0)
-            return BadRequest(new { error = "File is required" });
+    ///// <summary>
+    ///// Import data from Excel file
+    ///// </summary>
+    //[HttpPost("import/xlsx")]
+    //public async Task<IActionResult> ImportExcel(
+    //    [FromForm] IFormFile file,
+    //    [FromQuery] bool retrain = false)
+    //{
+    //    if (file == null || file.Length == 0)
+    //        return BadRequest(new { error = "File is required" });
 
-        if (!file.FileName.EndsWith(".xlsx"))
-            return BadRequest(new { error = "Only .xlsx files are supported" });
+    //    if (!file.FileName.EndsWith(".xlsx"))
+    //        return BadRequest(new { error = "Only .xlsx files are supported" });
 
-        if (file.Length > 10 * 1024 * 1024) // 10MB limit
-            return BadRequest(new { error = "File size exceeds 10MB limit" });
+    //    if (file.Length > 10 * 1024 * 1024) // 10MB limit
+    //        return BadRequest(new { error = "File size exceeds 10MB limit" });
 
-        var companyCode = HttpContext.Items["CompanyCode"]?.ToString();
-        if (string.IsNullOrEmpty(companyCode))
-            return Unauthorized(new { error = "Company code not found" });
+    //    var companyCode = HttpContext.Items["CompanyCode"]?.ToString();
+    //    if (string.IsNullOrEmpty(companyCode))
+    //        return Unauthorized(new { error = "Company code not found" });
 
-        try
-        {
-            using var stream = file.OpenReadStream();
+    //    try
+    //    {
+    //        using var stream = file.OpenReadStream();
             
-            // TODO: Get actual company ID from code
-            var companyId = Guid.NewGuid(); // Placeholder
+    //        // TODO: Get actual company ID from code
+    //        var companyId = Guid.NewGuid(); // Placeholder
             
-            var result = await _importDataUseCase.ExecuteAsync(stream, companyId, retrain);
+    //        var result = await _importDataUseCase.ExecuteAsync(stream, companyId, retrain);
             
-            if (result.Success)
-            {
-                return Ok(new
-                {
-                    success = true,
-                    message = result.Message,
-                    data = new
-                    {
-                        fileHash = result.FileHash,
-                        stores = result.StoresImported,
-                        sellers = result.SellersImported,
-                        goals = result.GoalsImported,
-                        sales = result.SalesImported
-                    }
-                });
-            }
-            else
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = result.Message,
-                    errors = result.Errors
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error importing Excel file");
-            return StatusCode(500, new { error = "Internal server error", details = ex.Message });
-        }
-    }
+    //        if (result.Success)
+    //        {
+    //            return Ok(new
+    //            {
+    //                success = true,
+    //                message = result.Message,
+    //                data = new
+    //                {
+    //                    fileHash = result.FileHash,
+    //                    stores = result.StoresImported,
+    //                    sellers = result.SellersImported,
+    //                    goals = result.GoalsImported,
+    //                    sales = result.SalesImported
+    //                }
+    //            });
+    //        }
+    //        else
+    //        {
+    //            return BadRequest(new
+    //            {
+    //                success = false,
+    //                message = result.Message,
+    //                errors = result.Errors
+    //            });
+    //        }
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _logger.LogError(ex, "Error importing Excel file");
+    //        return StatusCode(500, new { error = "Internal server error", details = ex.Message });
+    //    }
+    //}
 
     /// <summary>
     /// Get import/training status
