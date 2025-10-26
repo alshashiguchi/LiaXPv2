@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LiaXP.Application.UseCases;
+using LiaXP.Application.DTOs.Webhook;
 
 namespace LiaXP.Api.Controllers;
 
@@ -9,57 +10,75 @@ public class WebhookController : ControllerBase
 {
     private readonly ProcessChatMessageUseCase _processChatUseCase;
     private readonly ILogger<WebhookController> _logger;
+    private readonly IConfiguration _configuration;
 
-    public WebhookController(ProcessChatMessageUseCase processChatUseCase, ILogger<WebhookController> logger)
+    public WebhookController(ProcessChatMessageUseCase processChatUseCase, ILogger<WebhookController> logger, IConfiguration configuration)
     {
         _processChatUseCase = processChatUseCase;
         _logger = logger;
+        _configuration = configuration;
+
     }
 
     /// <summary>
-    /// WhatsApp webhook - GET for verification (Meta)
+    /// Verificação do webhook do WhatsApp (Meta)
     /// </summary>
     [HttpGet("whatsapp")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public IActionResult VerifyWebhook(
         [FromQuery(Name = "hub.mode")] string mode,
-        [FromQuery(Name = "hub.verify_token")] string verifyToken,
-        [FromQuery(Name = "hub.challenge")] string challenge)
+        [FromQuery(Name = "hub.challenge")] string challenge,
+        [FromQuery(Name = "hub.verify_token")] string verifyToken)
     {
-        var configToken = Environment.GetEnvironmentVariable("META_WA_VERIFY_TOKEN");
-        
-        if (mode == "subscribe" && verifyToken == configToken)
+        var expectedToken = _configuration["WhatsApp:VerifyToken"];
+
+        if (mode == "subscribe" && verifyToken == expectedToken)
         {
-            _logger.LogInformation("Webhook verified successfully");
+            _logger.LogInformation("Webhook verificado com sucesso");
             return Ok(challenge);
         }
-        
-        return Forbid();
+
+        _logger.LogWarning("Falha na verificação do webhook");
+        return StatusCode(StatusCodes.Status403Forbidden);
     }
 
     /// <summary>
-    /// WhatsApp webhook - POST for messages
+    /// Recebe mensagens do WhatsApp
     /// </summary>
     [HttpPost("whatsapp")]
-    public async Task<IActionResult> ReceiveMessage()
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ReceiveMessage([FromBody] WhatsAppWebhookRequest request)
     {
         try
         {
-            // Read raw body
-            using var reader = new StreamReader(Request.Body);
-            var body = await reader.ReadToEndAsync();
-            
-            _logger.LogInformation("Received webhook: {Body}", body);
-            
-            // TODO: Parse webhook payload based on provider (Twilio vs Meta)
-            // TODO: Extract company, phone, message
-            // TODO: Call ProcessChatMessageUseCase
-            
-            return Ok();
+            _logger.LogInformation("Webhook recebido: {Object}", request.Object);
+
+            foreach (var entry in request.Entry)
+            {
+                foreach (var change in entry.Changes)
+                {
+                    if (change.Field == "messages")
+                    {
+                        foreach (var message in change.Value.Messages)
+                        {
+                            _logger.LogInformation(
+                                "Mensagem recebida de {From}: {Text}",
+                                message.From,
+                                message.Text.Body);
+
+                            // TODO: Processar mensagem (identificar vendedor, processar com IA, responder)
+                        }
+                    }
+                }
+            }
+
+            return Ok(new { status = "success" });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing webhook");
-            return StatusCode(500);
+            _logger.LogError(ex, "Erro ao processar webhook do WhatsApp");
+            return Ok(new { status = "error" }); // Retornar 200 para não retentar
         }
     }
 }

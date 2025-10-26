@@ -1,71 +1,108 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LiaXP.Application.UseCases;
+using LiaXP.Application.DTOs.Chat;
+using System.Security.Claims;
 
 namespace LiaXP.Api.Controllers;
 
 [ApiController]
-[Route("chat")]
+[Route("api/[controller]")]
 [Authorize]
 public class ChatController : ControllerBase
 {
     private readonly ProcessChatMessageUseCase _processChatUseCase;
     private readonly ILogger<ChatController> _logger;
 
-    public ChatController(ProcessChatMessageUseCase processChatUseCase, ILogger<ChatController> logger)
+    public ChatController(
+        ProcessChatMessageUseCase processChatUseCase,
+        ILogger<ChatController> logger)
     {
         _processChatUseCase = processChatUseCase;
         _logger = logger;
     }
 
     /// <summary>
-    /// Process chat message
+    /// Processa uma mensagem de chat com a IA
     /// </summary>
+    /// <param name="request">Mensagem do usuário</param>
+    /// <param name="cancellationToken">Token de cancelamento</param>
+    /// <returns>Resposta da IA</returns>
+    /// <response code="200">Mensagem processada com sucesso</response>
+    /// <response code="400">Requisição inválida</response>
+    /// <response code="401">Não autenticado</response>
     [HttpPost]
-    public async Task<IActionResult> ProcessMessage([FromBody] ChatRequest request)
+    [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ProcessMessage(
+        [FromBody] ChatRequest request,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(request.Message))
-            return BadRequest(new { error = "Message is required" });
-
-        var companyCode = HttpContext.Items["CompanyCode"]?.ToString();
-        if (string.IsNullOrEmpty(companyCode))
-            return Unauthorized(new { error = "Company code not found" });
+        if (string.IsNullOrWhiteSpace(request?.Message))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Requisição inválida",
+                Detail = "A mensagem não pode estar vazia"
+            });
+        }
 
         try
         {
-            // TODO: Get actual company ID and seller phone from context
-            var companyId = Guid.NewGuid();
-            var sellerPhone = User.FindFirst("phone")?.Value ?? "+5511999999999";
-            
+            var userId = GetUserId();
+            var companyCode = GetCompanyCode();
+
             var result = await _processChatUseCase.ExecuteAsync(
-                request.Message, 
-                sellerPhone, 
-                companyId);
-            
-            if (result.Success)
+                request,
+                userId,
+                companyCode,
+                cancellationToken);
+
+            if (!result.IsSuccess)
             {
-                return Ok(new
+                return BadRequest(new ProblemDetails
                 {
-                    success = true,
-                    response = result.Response,
-                    intent = result.Intent
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Erro ao processar chat",
+                    Detail = result.ErrorMessage
                 });
             }
-            else
+
+            return Ok(result.Data);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Unauthorized access attempt");
+            return Unauthorized(new ProblemDetails
             {
-                return BadRequest(new
-                {
-                    success = false,
-                    error = result.ErrorMessage
-                });
-            }
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Não autorizado",
+                Detail = ex.Message
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing chat message");
-            return StatusCode(500, new { error = "Internal server error" });
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Erro interno",
+                Detail = "Ocorreu um erro ao processar sua mensagem"
+            });
         }
     }
-}
 
-public record ChatRequest(string Message);
+    private Guid GetUserId()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return Guid.Parse(userIdClaim ?? throw new UnauthorizedAccessException("User ID não encontrado"));
+    }
+
+    private string GetCompanyCode()
+    {
+        return User.FindFirst("company_code")?.Value
+            ?? throw new UnauthorizedAccessException("Company code não encontrado");
+    }
+}

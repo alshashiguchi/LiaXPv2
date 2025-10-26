@@ -10,6 +10,9 @@ using LiaXP.Infrastructure.WhatsApp;
 using LiaXP.Application.UseCases;
 using Quartz;
 using LiaXP.Infrastructure.Cron;
+using LiaXP.Api.Jobs;
+using LiaXP.Infrastructure.Data.Repositories;
+using LiaXP.Application.UseCases.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -73,9 +76,11 @@ var jwtAudience = builder.Configuration["JWT_AUDIENCE"] ?? "liaxp-api";
 if (jwtIssuer == "self")
 {
     // Local JWT with HS256
-    var jwtKey = builder.Configuration["JWT_SIGNING_KEY"] 
-        ?? throw new InvalidOperationException("JWT_SIGNING_KEY is required");
-    
+    //var jwtKey = builder.Configuration["JWT_SIGNING_KEY"] 
+    //    ?? throw new InvalidOperationException("JWT_SIGNING_KEY is required");
+    var jwtKey = "wqpq8ne2+j1S091SDJAXHKnT1FeSDOXn3Sc9ZiC7J9I=";
+
+
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
@@ -136,7 +141,7 @@ builder.Services.AddQuartz(q =>
     q.UseMicrosoftDependencyInjectionJobFactory();
 
     // Exemplo: Registrar jobs para a empresa ACME
-    var acmeCompanyId = Guid.Parse("sua-company-guid-aqui");
+    var acmeCompanyId = Guid.NewGuid();//Guid.Parse("sua-company-guid-aqui");
     var timezone = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
 
     // Job 1: Mensagem Matinal (7:00)
@@ -191,6 +196,9 @@ builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<IIntentRouter, IntentRouter>();
 builder.Services.AddScoped<ICronService, CronService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+builder.Services.AddScoped<ITokenService, JwtTokenService>();
 
 // Register WhatsApp Client based on provider
 var whatsAppProvider = builder.Configuration["WHATS_PROVIDER"] ?? "twilio";
@@ -206,6 +214,7 @@ else
 // Register Use Cases
 builder.Services.AddScoped<ImportDataUseCase>();
 builder.Services.AddScoped<ProcessChatMessageUseCase>();
+builder.Services.AddScoped<ILoginUseCase, LoginUseCase>();
 
 var app = builder.Build();
 
