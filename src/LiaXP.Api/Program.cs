@@ -13,6 +13,7 @@ using LiaXP.Infrastructure.Cron;
 using LiaXP.Api.Jobs;
 using LiaXP.Infrastructure.Data.Repositories;
 using LiaXP.Application.UseCases.Auth;
+using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -200,6 +201,14 @@ builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
+
+builder.Services.AddScoped<IAIService, OpenAIService>();
+builder.Services.AddScoped<IIntentRouter, IntentRouter>();
+builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<IMessageLogRepository, MessageLogRepository>();
+
+// HttpClient para OpenAI
+builder.Services.AddHttpClient<OpenAIService>();
 
 // Register WhatsApp Client based on provider
 var whatsAppProvider = builder.Configuration["WHATS_PROVIDER"] ?? "twilio";

@@ -167,6 +167,23 @@ CREATE TABLE MessageLog (
     CONSTRAINT FK_MessageLog_Company FOREIGN KEY (CompanyId) REFERENCES Company(Id)
 );
 
+-- ChatHistory Table
+CREATE TABLE ChatHistory (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    CompanyCode NVARCHAR(50) NOT NULL,
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    UserMessage NVARCHAR(MAX) NOT NULL,
+    AssistantResponse NVARCHAR(MAX) NOT NULL,
+    Intent NVARCHAR(50) NOT NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    MetadataJson NVARCHAR(MAX) NULL,
+    CONSTRAINT FK_ChatHistory_User FOREIGN KEY (UserId) REFERENCES Users(Id)
+);
+
+-- Indexes
+CREATE INDEX IX_ChatHistory_UserId ON ChatHistory(UserId);
+CREATE INDEX IX_ChatHistory_CompanyCode ON ChatHistory(CompanyCode);
+CREATE INDEX IX_ChatHistory_CreatedAt ON ChatHistory(CreatedAt);
 -- Create Indexes
 CREATE INDEX IX_Store_CompanyId ON Store(CompanyId);
 CREATE INDEX IX_Seller_CompanyId ON Seller(CompanyId);
