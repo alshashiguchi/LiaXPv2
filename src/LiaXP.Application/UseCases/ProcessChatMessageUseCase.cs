@@ -115,7 +115,7 @@ public class ProcessChatMessageUseCase
                 Message = intentResult.Response,
                 Intent = intentResult.Intent.ToString(),
                 Confidence = intentResult.Confidence ?? 0.0,
-                ProcessingTimeMs = intentResult.ProcessingTimeMs,
+                ProcessingTimeMs = intentResult.ProcessingTimeMs ?? 0,
                 Timestamp = DateTime.UtcNow
             };
 

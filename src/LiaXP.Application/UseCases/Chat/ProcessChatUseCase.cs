@@ -2,6 +2,7 @@
 
 using LiaXP.Application.DTOs.Chat;
 using LiaXP.Domain.Entities;
+using LiaXP.Domain.Enums;
 using LiaXP.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -114,15 +115,15 @@ public class ProcessChatMessageUseCase : IProcessChatMessageUseCase
         }
     }
 
-    private ChatIntent ParseIntent(string? intentString)
+    private IntentType ParseIntent(string? intentString)
     {
         if (string.IsNullOrWhiteSpace(intentString))
-            return ChatIntent.Unknown;
+            return IntentType.Unknown;
 
-        if (Enum.TryParse<ChatIntent>(intentString, ignoreCase: true, out var intent))
+        if (Enum.TryParse<IntentType>(intentString, ignoreCase: true, out var intent))
             return intent;
 
-        return ChatIntent.Unknown;
+        return IntentType.Unknown;
     }
 }
 

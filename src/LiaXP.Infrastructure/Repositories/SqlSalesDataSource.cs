@@ -214,4 +214,23 @@ public class SqlSalesDataSource : ISalesDataSource
         
         await connection.ExecuteAsync(sql, seller);
     }
+
+    public async Task<Seller?> GetSellerByPhoneAsync(string phoneE164)
+    {
+        using var connection = new SqlConnection(_connectionString);
+
+        const string sql = @"
+        SELECT s.*, c.Code as CompanyCode, c.Name as CompanyName
+        FROM Seller s
+        INNER JOIN Company c ON s.CompanyId = c.Id
+        WHERE s.PhoneE164 = @PhoneE164 
+          AND s.IsDeleted = 0
+          AND s.Status = 'Active'
+          AND c.IsActive = 1";
+
+        return await connection.QueryFirstOrDefaultAsync<Seller>(
+            sql,
+            new { PhoneE164 = phoneE164 }
+        );
+    }
 }

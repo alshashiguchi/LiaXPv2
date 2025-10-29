@@ -1,9 +1,11 @@
 ﻿using LiaXP.Domain.Entities;
+using LiaXP.Domain.Enums;
 using LiaXP.Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using static LiaXP.Domain.Interfaces.IAIService;
 
 namespace LiaXP.Infrastructure.Services;
 
@@ -82,38 +84,38 @@ public class OpenAIService : IAIService
             return new AIResponse
             {
                 Message = "Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente.",
-                Intent = ChatIntent.Unknown,
+                Intent = IntentType.Unknown,
                 Metadata = new Dictionary<string, string>()
             };
         }
     }
 
-    public ChatIntent DetectIntent(string message)
+    public IntentType DetectIntent(string message) 
     {
         var lowerMessage = message.ToLowerInvariant();
 
         if (lowerMessage.Contains("meta") && (lowerMessage.Contains("falta") || lowerMessage.Contains("faltam")))
-            return ChatIntent.GoalGap;
+            return IntentType.GoalGap; 
 
         if (lowerMessage.Contains("dica") || lowerMessage.Contains("como vender"))
-            return ChatIntent.Tips;
+            return IntentType.PersonalizedTips; 
 
         if (lowerMessage.Contains("ranking") || lowerMessage.Contains("top"))
-            return ChatIntent.Ranking;
+            return IntentType.Ranking; 
 
         if (lowerMessage.Contains("como está") && !lowerMessage.Contains("equipe"))
-            return ChatIntent.SellerPerformance;
+            return IntentType.SellerPerformance; 
 
         if (lowerMessage.Contains("motivação") || lowerMessage.Contains("motivacional"))
-            return ChatIntent.TeamMotivation;
+            return IntentType.TeamMotivation; 
 
         if (lowerMessage.Contains("produto") || lowerMessage.Contains("categoria"))
-            return ChatIntent.ProductHelp;
+            return IntentType.ProductHelp; 
 
-        return ChatIntent.GeneralQuestion;
+        return IntentType.GeneralQuestion; 
     }
 
-    private string BuildSystemPrompt(ChatIntent intent, Dictionary<string, object>? context)
+    private string BuildSystemPrompt(IntentType intent, Dictionary<string, object>? context)
     {
         var basePrompt = @"Você é a LIA, uma assistente virtual especializada em vendas de cosméticos. 
 Seu objetivo é ajudar vendedores e gerentes a atingir suas metas através de insights, 
@@ -121,19 +123,19 @@ dicas práticas e motivação. Seja objetiva, positiva e empática.";
 
         return intent switch
         {
-            ChatIntent.GoalGap => basePrompt + @"
+            IntentType.GoalGap => basePrompt + @"
 O usuário está perguntando sobre o gap para a meta. 
 Use os dados fornecidos para calcular quanto falta e dê insights sobre como alcançar.",
 
-            ChatIntent.Tips => basePrompt + @"
+            IntentType.PersonalizedTips => basePrompt + @"
 O usuário precisa de dicas de abordagem de vendas. 
 Forneça técnicas consultivas, focadas em benefícios e experiência do cliente.",
 
-            ChatIntent.Ranking => basePrompt + @"
+            IntentType.Ranking => basePrompt + @"
 O usuário quer ver o ranking de vendas. 
 Apresente os dados de forma motivacional, celebrando os destaques.",
 
-            ChatIntent.TeamMotivation => basePrompt + @"
+            IntentType.TeamMotivation => basePrompt + @"
 Crie uma mensagem motivacional curta e impactante para a equipe.",
 
             _ => basePrompt

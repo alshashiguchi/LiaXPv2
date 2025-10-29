@@ -17,7 +17,8 @@ public interface ISalesDataSource
     Task<Store?> GetStoreByNameAsync(Guid companyId, string name);
     Task<Seller?> GetSellerByCodeAsync(Guid companyId, string sellerCode);
     Task<Seller?> GetSellerByPhoneAsync(Guid companyId, string phoneE164);
-    
+    Task<Seller?> GetSellerByPhoneAsync(string phoneE164);
+
     Task UpsertCompanyAsync(Company company);
     Task UpsertStoreAsync(Store store);
     Task UpsertSellerAsync(Seller seller);

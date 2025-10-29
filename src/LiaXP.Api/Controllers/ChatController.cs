@@ -6,9 +6,9 @@ using System.Security.Claims;
 
 namespace LiaXP.Api.Controllers;
 
+[Authorize(Roles = "Admin")]
 [ApiController]
-[Route("api/[controller]")]
-[Authorize]
+[Route("admin/chat-simulator")]
 public class ChatController : ControllerBase
 {
     private readonly ProcessChatMessageUseCase _processChatUseCase;
@@ -23,7 +23,7 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
-    /// Processa uma mensagem de chat com a IA
+    /// Simula conversa WhatsApp para testes
     /// </summary>
     /// <param name="request">Mensagem do usuário</param>
     /// <param name="cancellationToken">Token de cancelamento</param>
@@ -35,7 +35,7 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> ProcessMessage(
+    public async Task<IActionResult> SimulateChat(
         [FromBody] ChatRequest request,
         CancellationToken cancellationToken)
     {
