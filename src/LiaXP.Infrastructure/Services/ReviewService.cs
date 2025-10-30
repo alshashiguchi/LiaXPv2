@@ -3,6 +3,7 @@ using LiaXP.Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Data.SqlClient;
 using Dapper;
+using Microsoft.Extensions.Logging;
 
 namespace LiaXP.Infrastructure.Services;
 
@@ -11,15 +12,78 @@ public class ReviewService : IReviewService
     private readonly string _connectionString;
     private readonly IWhatsAppClient _whatsAppClient;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<ReviewService> _logger;
 
     public ReviewService(
         IConfiguration configuration,
-        IWhatsAppClient whatsAppClient)
+        IWhatsAppClient whatsAppClient,
+        ILogger<ReviewService> logger)
     {
-        _connectionString = configuration.GetConnectionString("DefaultConnection") 
+        _connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string not found");
         _whatsAppClient = whatsAppClient;
         _configuration = configuration;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Creates a new review queue entry for HITL workflow
+    /// </summary>
+    public async Task<ReviewQueue> CreateReviewAsync(
+        ReviewQueue review,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqlConnection(_connectionString);
+
+        const string sql = @"
+            INSERT INTO ReviewQueue (
+                Id, CompanyId, Moment, RecipientPhone, RecipientName,
+                DraftMessage, Status, CreatedAt
+            )
+            VALUES (
+                @Id, @CompanyId, @Moment, @RecipientPhone, @RecipientName,
+                @DraftMessage, @Status, @CreatedAt
+            )";
+
+        try
+        {
+            await connection.ExecuteAsync(
+                new CommandDefinition(
+                    sql,
+                    new
+                    {
+                        review.Id,
+                        review.CompanyId,
+                        review.Moment,
+                        review.RecipientPhone,
+                        review.RecipientName,
+                        review.DraftMessage,
+                        review.Status,
+                        review.CreatedAt
+                    },
+                    cancellationToken: cancellationToken
+                )
+            );
+
+            _logger.LogInformation(
+                "Review queue entry created | Id: {ReviewId} | Recipient: {RecipientName} | Phone: {Phone}",
+                review.Id,
+                review.RecipientName,
+                review.RecipientPhone
+            );
+
+            return review;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Error creating review queue entry | CompanyId: {CompanyId} | Recipient: {Phone}",
+                review.CompanyId,
+                review.RecipientPhone
+            );
+            throw;
+        }
     }
 
     public async Task<IEnumerable<ReviewQueue>> GetPendingReviewsAsync(Guid companyId)
@@ -29,7 +93,7 @@ public class ReviewService : IReviewService
             SELECT * FROM ReviewQueue 
             WHERE CompanyId = @CompanyId AND Status = 'Pending' AND IsDeleted = 0
             ORDER BY CreatedAt";
-        
+
         return await connection.QueryAsync<ReviewQueue>(sql, new { CompanyId = companyId });
     }
 
@@ -45,22 +109,22 @@ public class ReviewService : IReviewService
         var review = await GetReviewByIdAsync(reviewId);
         if (review == null || review.Status != "Pending")
             return false;
-        
+
         var sendOnApprove = _configuration.GetValue<bool>("HITL:SendOnApprove", true);
-        
+
         if (sendOnApprove)
         {
             var result = await _whatsAppClient.SendMessageAsync(
                 review.RecipientPhone,
                 review.DraftMessage,
                 review.CompanyId);
-            
+
             if (!result.Success)
             {
                 await UpdateReviewStatusAsync(reviewId, "Failed", reviewedBy, result.ErrorMessage);
                 return false;
             }
-            
+
             await UpdateReviewStatusAsync(reviewId, "Sent", reviewedBy);
             return true;
         }
@@ -76,7 +140,7 @@ public class ReviewService : IReviewService
         var review = await GetReviewByIdAsync(reviewId);
         if (review == null || review.Status != "Pending")
             return false;
-        
+
         // Update with edited message
         using var connection = new SqlConnection(_connectionString);
         var sql = @"
@@ -87,32 +151,32 @@ public class ReviewService : IReviewService
                 ReviewedBy = @ReviewedBy,
                 UpdatedAt = GETUTCDATE()
             WHERE Id = @Id";
-        
-        await connection.ExecuteAsync(sql, new 
-        { 
-            Id = reviewId, 
-            EditedMessage = editedMessage, 
-            ReviewedBy = reviewedBy 
+
+        await connection.ExecuteAsync(sql, new
+        {
+            Id = reviewId,
+            EditedMessage = editedMessage,
+            ReviewedBy = reviewedBy
         });
-        
+
         var sendOnApprove = _configuration.GetValue<bool>("HITL:SendOnApprove", true);
-        
+
         if (sendOnApprove)
         {
             var result = await _whatsAppClient.SendMessageAsync(
                 review.RecipientPhone,
                 editedMessage,
                 review.CompanyId);
-            
+
             if (!result.Success)
             {
                 await UpdateReviewStatusAsync(reviewId, "Failed", reviewedBy, result.ErrorMessage);
                 return false;
             }
-            
+
             await UpdateReviewStatusAsync(reviewId, "Sent", reviewedBy);
         }
-        
+
         return true;
     }
 
@@ -134,13 +198,13 @@ public class ReviewService : IReviewService
                 ErrorMessage = @ErrorMessage,
                 UpdatedAt = GETUTCDATE()
             WHERE Id = @Id";
-        
-        await connection.ExecuteAsync(sql, new 
-        { 
-            Id = reviewId, 
-            Status = status, 
-            ReviewedBy = reviewedBy, 
-            ErrorMessage = errorMessage 
+
+        await connection.ExecuteAsync(sql, new
+        {
+            Id = reviewId,
+            Status = status,
+            ReviewedBy = reviewedBy,
+            ErrorMessage = errorMessage
         });
     }
 }

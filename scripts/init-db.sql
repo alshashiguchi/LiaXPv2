@@ -1,6 +1,8 @@
 -- LiaXP Database Schema for Azure SQL Server
+-- Updated with Users table
 
 -- Drop existing tables if they exist (for clean setup)
+IF OBJECT_ID('ChatMessage', 'U') IS NOT NULL DROP TABLE ChatMessage;
 IF OBJECT_ID('MessageLog', 'U') IS NOT NULL DROP TABLE MessageLog;
 IF OBJECT_ID('ReviewQueue', 'U') IS NOT NULL DROP TABLE ReviewQueue;
 IF OBJECT_ID('InsightCache', 'U') IS NOT NULL DROP TABLE InsightCache;
@@ -9,6 +11,7 @@ IF OBJECT_ID('Sale', 'U') IS NOT NULL DROP TABLE Sale;
 IF OBJECT_ID('Goal', 'U') IS NOT NULL DROP TABLE Goal;
 IF OBJECT_ID('Seller', 'U') IS NOT NULL DROP TABLE Seller;
 IF OBJECT_ID('Store', 'U') IS NOT NULL DROP TABLE Store;
+IF OBJECT_ID('Users', 'U') IS NOT NULL DROP TABLE Users;
 IF OBJECT_ID('Company', 'U') IS NOT NULL DROP TABLE Company;
 GO
 
@@ -22,6 +25,24 @@ CREATE TABLE Company (
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     UpdatedAt DATETIME2 NULL,
     IsDeleted BIT NOT NULL DEFAULT 0
+);
+
+-- ✅ NEW: Users Table
+CREATE TABLE Users (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    CompanyCode NVARCHAR(50) NOT NULL,
+    Email NVARCHAR(200) NOT NULL,
+    PasswordHash NVARCHAR(500) NOT NULL,
+    FullName NVARCHAR(200) NOT NULL,
+    [Role] INT NOT NULL, -- 1=Admin, 2=Manager, 3=Seller
+    IsActive BIT NOT NULL DEFAULT 1,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    LastLoginAt DATETIME2 NULL,
+    
+    -- Constraints
+    CONSTRAINT UQ_Users_Email_Company UNIQUE (Email, CompanyCode),
+    CONSTRAINT FK_Users_Company FOREIGN KEY (CompanyCode) REFERENCES Company(Code) ON DELETE CASCADE,
+    CONSTRAINT CK_Users_Role CHECK ([Role] IN (1, 2, 3))
 );
 
 -- Store Table
@@ -167,24 +188,26 @@ CREATE TABLE MessageLog (
     CONSTRAINT FK_MessageLog_Company FOREIGN KEY (CompanyId) REFERENCES Company(Id)
 );
 
--- ChatHistory Table
-CREATE TABLE ChatHistory (
+-- ✅ NEW: ChatMessage Table (for AI conversation history)
+CREATE TABLE ChatMessage (
     Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     CompanyCode NVARCHAR(50) NOT NULL,
     UserId UNIQUEIDENTIFIER NOT NULL,
     UserMessage NVARCHAR(MAX) NOT NULL,
     AssistantResponse NVARCHAR(MAX) NOT NULL,
-    Intent NVARCHAR(50) NOT NULL,
+    Intent INT NOT NULL, -- IntentType enum
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-    MetadataJson NVARCHAR(MAX) NULL,
-    CONSTRAINT FK_ChatHistory_User FOREIGN KEY (UserId) REFERENCES Users(Id)
+    Metadata NVARCHAR(MAX) NULL, -- JSON with additional context
+    
+    CONSTRAINT FK_ChatMessage_Company FOREIGN KEY (CompanyCode) REFERENCES Company(Code),
+    CONSTRAINT FK_ChatMessage_User FOREIGN KEY (UserId) REFERENCES Users(Id)
 );
 
--- Indexes
-CREATE INDEX IX_ChatHistory_UserId ON ChatHistory(UserId);
-CREATE INDEX IX_ChatHistory_CompanyCode ON ChatHistory(CompanyCode);
-CREATE INDEX IX_ChatHistory_CreatedAt ON ChatHistory(CreatedAt);
 -- Create Indexes
+CREATE INDEX IX_Users_Email ON Users(Email);
+CREATE INDEX IX_Users_CompanyCode ON Users(CompanyCode);
+CREATE INDEX IX_Users_IsActive ON Users(IsActive);
+
 CREATE INDEX IX_Store_CompanyId ON Store(CompanyId);
 CREATE INDEX IX_Seller_CompanyId ON Seller(CompanyId);
 CREATE INDEX IX_Seller_StoreId ON Seller(StoreId);
@@ -202,6 +225,9 @@ CREATE INDEX IX_ReviewQueue_CompanyId ON ReviewQueue(CompanyId);
 CREATE INDEX IX_ReviewQueue_Status ON ReviewQueue([Status]);
 CREATE INDEX IX_MessageLog_CompanyId ON MessageLog(CompanyId);
 CREATE INDEX IX_MessageLog_SentAt ON MessageLog(SentAt);
+CREATE INDEX IX_ChatMessage_CompanyCode ON ChatMessage(CompanyCode);
+CREATE INDEX IX_ChatMessage_UserId ON ChatMessage(UserId);
+CREATE INDEX IX_ChatMessage_CreatedAt ON ChatMessage(CreatedAt);
 
 GO
 
@@ -209,6 +235,20 @@ GO
 INSERT INTO Company (Code, [Name], [Description], IsActive)
 VALUES ('ACME', 'ACME Corporation', 'Sample company for testing', 1);
 
+-- ✅ Insert sample admin user (password: Admin@123)
+-- Password hash generated with PBKDF2-HMACSHA256, 100000 iterations
+INSERT INTO Users (CompanyCode, Email, PasswordHash, FullName, [Role], IsActive)
+VALUES (
+    'ACME',
+    'admin@acme.com',
+    'teste', -- Replace with actual hashed password
+    'Admin User',
+    1, -- Admin role
+    1
+);
+
 GO
 
 PRINT 'Database schema created successfully!';
+PRINT 'Sample company ACME created';
+PRINT 'Sample admin user: admin@acme.com (password needs to be set)';

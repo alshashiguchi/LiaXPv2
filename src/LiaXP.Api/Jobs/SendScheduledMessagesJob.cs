@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using LiaXP.Application.UseCases.Messages;
+using LiaXP.Domain.Enums;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Quartz;
 
@@ -113,30 +115,32 @@ public class SendScheduledMessagesJob : IJob
         Guid companyId,
         CancellationToken cancellationToken)
     {
-        // TODO: Replace these with your actual Use Cases from LiaXP.Application
-        // Example services you might need:
-        // - IGenerateScheduledMessagesUseCase
-        // - ISendApprovedMessagesUseCase
-        // - IInsightsService
-        // - IWhatsAppService
-
         var messagesGenerated = 0;
         var messagesSent = 0;
 
         try
         {
+            // Parse moment type
+            if (!Enum.TryParse<MomentType>(moment, ignoreCase: true, out var momentType))
+            {
+                throw new InvalidOperationException($"Invalid moment type: {moment}");
+            }
+
             // ============================================================
             // STEP 1: Generate messages (creates pending reviews in HITL)
             // ============================================================
             _logger.LogDebug("📝 Generating messages for moment: {Moment}", moment);
 
-            // Example: Resolve your Use Case from DI
-            // var generateUseCase = scopedProvider.GetRequiredService<IGenerateScheduledMessagesUseCase>();
-            // var generationResult = await generateUseCase.ExecuteAsync(moment, companyId, cancellationToken);
-            // messagesGenerated = generationResult.Count;
+            var generateUseCase = scopedProvider.GetRequiredService<IGenerateScheduledMessagesUseCase>();
+            var generationResult = await generateUseCase.ExecuteAsync(momentType, companyId, cancellationToken);
 
-            // For now, simulate the logic:
-            messagesGenerated = await SimulateMessageGenerationAsync(moment, companyId, cancellationToken);
+            if (!generationResult.Success)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to generate messages: {generationResult.ErrorMessage}");
+            }
+
+            messagesGenerated = generationResult.MessagesQueued;
 
             _logger.LogInformation(
                 "📊 Generated {Count} messages for review | Moment: {Moment} | CompanyId: {CompanyId}",
@@ -151,21 +155,37 @@ public class SendScheduledMessagesJob : IJob
             // Note: In LiaXP, messages go through HITL review first
             // Only auto-approved messages (if configured) are sent immediately
 
-            _logger.LogDebug("📤 Checking for auto-approved messages to send");
+            if (generationResult.AutoApproved)
+            {
+                _logger.LogDebug("📤 Auto-approve enabled, sending messages immediately");
 
-            // Example:
-            // var sendUseCase = scopedProvider.GetRequiredService<ISendApprovedMessagesUseCase>();
-            // var sendResult = await sendUseCase.ExecuteAsync(companyId, moment, cancellationToken);
-            // messagesSent = sendResult.Count;
+                var sendUseCase = scopedProvider.GetRequiredService<ISendApprovedMessagesUseCase>();
+                var sendResult = await sendUseCase.ExecuteAsync(companyId, moment, cancellationToken);
 
-            // For now, simulate:
-            messagesSent = await SimulateMessageSendingAsync(companyId, cancellationToken);
+                if (!sendResult.Success)
+                {
+                    _logger.LogWarning(
+                        "⚠️ Some messages failed to send | Error: {Error}",
+                        sendResult.ErrorMessage
+                    );
+                }
 
-            _logger.LogInformation(
-                "📨 Sent {Count} auto-approved messages | CompanyId: {CompanyId}",
-                messagesSent,
-                companyId
-            );
+                messagesSent = sendResult.MessagesSent;
+
+                _logger.LogInformation(
+                    "📨 Sent {Sent} messages | Failed: {Failed} | CompanyId: {CompanyId}",
+                    sendResult.MessagesSent,
+                    sendResult.MessagesFailed,
+                    companyId
+                );
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "⏸️ Messages queued for manual review (HITL enabled) | Count: {Count}",
+                    messagesGenerated
+                );
+            }
 
             return new ExecutionResult
             {
@@ -183,53 +203,6 @@ public class SendScheduledMessagesJob : IJob
             );
             throw;
         }
-    }
-
-    /// <summary>
-    /// Simulates message generation (replace with your actual Use Case).
-    /// In LiaXP, this would:
-    /// 1. Fetch sales data and insights
-    /// 2. Generate AI-powered messages
-    /// 3. Create pending reviews in the HITL workflow
-    /// </summary>
-    private async Task<int> SimulateMessageGenerationAsync(
-        string moment,
-        Guid companyId,
-        CancellationToken cancellationToken)
-    {
-        // TODO: Replace with actual implementation
-        // Example:
-        // var insights = await _insightsService.GetInsightsAsync(companyId);
-        // var team = await _teamService.GetActiveTeamMembersAsync(companyId);
-        // var messages = await _aiService.GenerateMessagesAsync(insights, team, moment);
-        // await _reviewService.CreatePendingReviewsAsync(messages);
-        // return messages.Count;
-
-        await Task.Delay(100, cancellationToken); // Simulate async work
-        return 5; // Simulated count
-    }
-
-    /// <summary>
-    /// Simulates sending auto-approved messages (replace with your actual Use Case).
-    /// In LiaXP, only messages that have been approved (manually or automatically)
-    /// are sent via WhatsApp.
-    /// </summary>
-    private async Task<int> SimulateMessageSendingAsync(
-        Guid companyId,
-        CancellationToken cancellationToken)
-    {
-        // TODO: Replace with actual implementation
-        // Example:
-        // var approvedMessages = await _reviewService.GetAutoApprovedMessagesAsync(companyId);
-        // foreach (var message in approvedMessages)
-        // {
-        //     await _whatsAppService.SendMessageAsync(message.PhoneNumber, message.Text);
-        //     await _reviewService.MarkAsSentAsync(message.Id);
-        // }
-        // return approvedMessages.Count;
-
-        await Task.Delay(100, cancellationToken); // Simulate async work
-        return 3; // Simulated count
     }
 
     /// <summary>
