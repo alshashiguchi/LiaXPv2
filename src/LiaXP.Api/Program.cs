@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Serilog;
@@ -14,6 +14,7 @@ using LiaXP.Api.Jobs;
 using LiaXP.Infrastructure.Data.Repositories;
 using LiaXP.Application.UseCases.Auth;
 using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,32 +31,32 @@ builder.Host.UseSerilog();
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new() { Title = "LiaXP API", Version = "v1" });
-    c.AddSecurityDefinition("Bearer", new()
-    {
-        Description = "JWT Authorization header using the Bearer scheme",
-        Name = "Authorization",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-    c.AddSecurityRequirement(new()
-    {
-        {
-            new()
-            {
-                Reference = new()
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+//builder.Services.AddSwaggerGen(c =>
+//{
+//    c.SwaggerDoc("v1", new() { Title = "LiaXP API", Version = "v1" });
+//    c.AddSecurityDefinition("Bearer", new()
+//    {
+//        Description = "JWT Authorization header using the Bearer scheme",
+//        Name = "Authorization",
+//        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+//        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+//        Scheme = "Bearer"
+//    });
+//    c.AddSecurityRequirement(new()
+//    {
+//        {
+//            new()
+//            {
+//                Reference = new()
+//                {
+//                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+//                    Id = "Bearer"
+//                }
+//            },
+//            Array.Empty<string>()
+//        }
+//    });
+//});
 
 // Configure CORS
 builder.Services.AddCors(options =>
@@ -70,17 +71,34 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure JWT Authentication
-var jwtIssuer = builder.Configuration["JWT_ISSUER"] ?? "self";
-var jwtAudience = builder.Configuration["JWT_AUDIENCE"] ?? "liaxp-api";
+/// ============================================================
+// JWT AUTHENTICATION CONFIGURATION
+// ============================================================
+
+var jwtIssuer = builder.Configuration["JWT:Issuer"]
+    ?? throw new InvalidOperationException("JWT:Issuer is required");
+
+var jwtAudience = builder.Configuration["JWT:Audience"]
+    ?? throw new InvalidOperationException("JWT:Audience is required");
 
 if (jwtIssuer == "self")
 {
-    // Local JWT with HS256
-    //var jwtKey = builder.Configuration["JWT_SIGNING_KEY"] 
-    //    ?? throw new InvalidOperationException("JWT_SIGNING_KEY is required");
-    var jwtKey = "wqpq8ne2+j1S091SDJAXHKnT1FeSDOXn3Sc9ZiC7J9I=";
+    // ✅ LOCAL JWT with HS256 (Development/Self-Hosted)
+    Console.WriteLine("🔐 Configuring LOCAL JWT Authentication (HS256)");
 
+    // ✅ CRITICAL: Read key from configuration, NOT hardcoded!
+    var jwtKey = builder.Configuration["JWT:SigningKey"]
+        ?? throw new InvalidOperationException("JWT:SigningKey is required for local authentication");
+
+    // Validate key size
+    var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+    if (keyBytes.Length < 32)
+    {
+        throw new InvalidOperationException(
+            $"JWT:SigningKey is too short ({keyBytes.Length} bytes). " +
+            $"Minimum required: 32 bytes (256 bits). " +
+            $"Generate a secure key using: [Convert]::ToBase64String((1..64 | ForEach-Object {{ Get-Random -Minimum 0 -Maximum 256 }}))");
+    }
 
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
@@ -88,34 +106,142 @@ if (jwtIssuer == "self")
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
                 ValidIssuer = jwtIssuer,
+
+                ValidateAudience = true,
                 ValidAudience = jwtAudience,
+
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero, // No time tolerance for expiration
+
+                ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
             };
+
+            // ✅ Event handlers for debugging
+            options.Events = new JwtBearerEvents
+            {
+                OnAuthenticationFailed = context =>
+                {
+                    var logger = context.HttpContext.RequestServices
+                        .GetRequiredService<ILogger<Program>>();
+
+                    logger.LogError(
+                        "❌ JWT Authentication Failed: {Error} | Exception: {Exception}",
+                        context.Exception.Message,
+                        context.Exception.GetType().Name);
+
+                    return Task.CompletedTask;
+                },
+                OnTokenValidated = context =>
+                {
+                    var logger = context.HttpContext.RequestServices
+                        .GetRequiredService<ILogger<Program>>();
+
+                    var userId = context.Principal?.FindFirst("sub")?.Value;
+                    var email = context.Principal?.FindFirst("email")?.Value;
+                    var companyCode = context.Principal?.FindFirst("company_code")?.Value;
+
+                    logger.LogInformation(
+                        "✅ JWT Token Validated | User: {Email} | Company: {CompanyCode}",
+                        email,
+                        companyCode);
+
+                    return Task.CompletedTask;
+                },
+                OnChallenge = context =>
+                {
+                    var logger = context.HttpContext.RequestServices
+                        .GetRequiredService<ILogger<Program>>();
+
+                    logger.LogWarning(
+                        "⚠️  JWT Challenge | Error: {Error} | Description: {Description} | Path: {Path}",
+                        context.Error,
+                        context.ErrorDescription,
+                        context.Request.Path);
+
+                    return Task.CompletedTask;
+                }
+            };
         });
+
+    Console.WriteLine($"✅ JWT Authentication configured | Issuer: {jwtIssuer} | Audience: {jwtAudience}");
 }
 else
 {
-    // Azure AD JWT with RS256
-    var authority = builder.Configuration["JWT_AUTHORITY"] 
-        ?? throw new InvalidOperationException("JWT_AUTHORITY is required");
-    
+    // ✅ AZURE AD JWT with RS256 (Production)
+    Console.WriteLine("🔐 Configuring AZURE AD JWT Authentication (RS256)");
+
+    var authority = builder.Configuration["JWT:Authority"]
+        ?? throw new InvalidOperationException("JWT:Authority is required for Azure AD authentication");
+
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
             options.Authority = authority;
             options.Audience = jwtAudience;
+
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
                 ValidateAudience = true,
-                ValidateLifetime = true
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
             };
         });
+
+    Console.WriteLine($"✅ Azure AD JWT configured | Authority: {authority} | Audience: {jwtAudience}");
 }
+
+builder.Services.AddAuthorization();
+
+// ============================================================
+// SWAGGER CONFIGURATION
+// ============================================================
+
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "LiaXP API",
+        Version = "v1",
+        Description = "AI-Powered Sales Assistant API with WhatsApp Integration",
+        Contact = new OpenApiContact
+        {
+            Name = "LiaXP Support",
+            Email = "support@liaxp.com"
+        }
+    });
+
+    // ✅ JWT Authentication in Swagger
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header using the Bearer scheme.\n\n" +
+                      "Enter your token in the text input below.\n\n" +
+                      "Example: \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"\n\n" +
+                      "You don't need to add 'Bearer ' prefix - it will be added automatically."
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 builder.Services.AddAuthorization(options =>
 {
@@ -137,7 +263,7 @@ builder.Services.AddScoped<IMessageLogRepository, MessageLogRepository>();
 builder.Services.AddHttpContextAccessor();
 
 // Configure Quartz for scheduled jobs
-// Em Program.cs, ap�s AddQuartz()
+// Em Program.cs, após AddQuartz()
 builder.Services.AddQuartz(q =>
 {
     q.UseMicrosoftDependencyInjectionJobFactory();
@@ -157,7 +283,7 @@ builder.Services.AddQuartz(q =>
         .ForJob(morningJobKey)
         .WithIdentity("morning-trigger-acme")
         .WithCronSchedule("0 0 7 * * ?", x => x.InTimeZone(timezone))
-        .WithDescription("Mensagem matinal �s 7h"));
+        .WithDescription("Mensagem matinal às 7h"));
 
     // Job 2: Mensagem Meio-dia (12:00)
     var middayJobKey = new JobKey("midday-messages-acme");
@@ -170,7 +296,7 @@ builder.Services.AddQuartz(q =>
         .ForJob(middayJobKey)
         .WithIdentity("midday-trigger-acme")
         .WithCronSchedule("0 0 12 * * ?", x => x.InTimeZone(timezone))
-        .WithDescription("Mensagem meio-dia �s 12h"));
+        .WithDescription("Mensagem meio-dia às 12h"));
 
     // Job 3: Mensagem Noturna (18:00)
     var eveningJobKey = new JobKey("evening-messages-acme");
@@ -183,7 +309,7 @@ builder.Services.AddQuartz(q =>
         .ForJob(eveningJobKey)
         .WithIdentity("evening-trigger-acme")
         .WithCronSchedule("0 0 18 * * ?", x => x.InTimeZone(timezone))
-        .WithDescription("Mensagem noturna �s 18h"));
+        .WithDescription("Mensagem noturna às 18h"));
 });
 builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 
@@ -259,25 +385,69 @@ app.UseAuthorization();
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value?.ToLower() ?? "";
-    var publicPaths = new[] { "/healthz", "/auth/token", "/webhook/whatsapp" };
-    
-    if (!publicPaths.Any(p => path.StartsWith(p)))
+
+    // Public paths that don't require company scope
+    var publicPaths = new[] { "/healthz", "/auth/token", "/webhook/whatsapp", "/swagger" };
+
+    if (publicPaths.Any(p => path.StartsWith(p)))
     {
-        var companyCode = context.Request.Headers["X-Company-Code"].FirstOrDefault()
-            ?? context.Request.Query["companyCode"].FirstOrDefault();
-        
-        if (string.IsNullOrEmpty(companyCode))
+        await next();
+        return;
+    }
+
+    string? companyCode = null;
+
+    // ✅ PRIORITY 1: Try to get from JWT claims (for authenticated requests)
+    if (context.User?.Identity?.IsAuthenticated == true)
+    {
+        companyCode = context.User.FindFirst("company_code")?.Value;
+
+        if (!string.IsNullOrEmpty(companyCode))
         {
-            context.Response.StatusCode = 401;
-            await context.Response.WriteAsJsonAsync(new { error = "X-Company-Code header required" });
+            context.Items["CompanyCode"] = companyCode;
+
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogDebug(
+                "✅ Company scope set from JWT | CompanyCode: {CompanyCode} | Path: {Path}",
+                companyCode,
+                path);
+
+            await next();
             return;
         }
-        
-        // TODO: Validate company code and set in context
-        context.Items["CompanyCode"] = companyCode;
     }
-    
-    await next();
+
+    // ✅ PRIORITY 2: Try X-Company-Code header (for webhooks, public APIs)
+    companyCode = context.Request.Headers["X-Company-Code"].FirstOrDefault()
+                  ?? context.Request.Query["companyCode"].FirstOrDefault();
+
+    if (!string.IsNullOrEmpty(companyCode))
+    {
+        context.Items["CompanyCode"] = companyCode;
+
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogDebug(
+            "✅ Company scope set from header | CompanyCode: {CompanyCode} | Path: {Path}",
+            companyCode,
+            path);
+
+        await next();
+        return;
+    }
+
+    // ❌ No company code found - reject request
+    var loggerError = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    loggerError.LogWarning(
+        "⚠️  Missing company scope | Path: {Path} | Authenticated: {IsAuthenticated}",
+        path,
+        context.User?.Identity?.IsAuthenticated);
+
+    context.Response.StatusCode = 401;
+    await context.Response.WriteAsJsonAsync(new
+    {
+        error = "Company identification required",
+        details = "Company code must be provided via JWT token (company_code claim) or X-Company-Code header"
+    });
 });
 
 app.MapControllers();
