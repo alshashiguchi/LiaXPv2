@@ -1,18 +1,18 @@
 ﻿namespace LiaXP.Application.DTOs.Auth;
 
-public record LoginResponse
+/// <summary>
+/// Login response DTO
+/// Includes JWT token and user information
+/// </summary>
+public class LoginResponse
 {
-    public string AccessToken { get; init; } = string.Empty;
-    public string TokenType { get; init; } = "Bearer";
-    public int ExpiresIn { get; init; } = 3600;
-    public UserInfo User { get; init; } = default!;
-}
+    /// <summary>
+    /// JWT access token
+    /// </summary>
+    public string Token { get; set; } = string.Empty;
 
-public record UserInfo
-{
-    public Guid Id { get; init; }
-    public string Email { get; init; } = string.Empty;
-    public string FullName { get; init; } = string.Empty;
-    public string Role { get; init; } = string.Empty;
-    public string CompanyCode { get; init; } = string.Empty;
+    /// <summary>
+    /// Authenticated user information
+    /// </summary>
+    public UserInfo User { get; set; } = new();
 }

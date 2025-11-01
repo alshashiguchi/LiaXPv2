@@ -13,16 +13,16 @@ public class TwilioWhatsAppClient : IWhatsAppClient
 
     public TwilioWhatsAppClient(HttpClient httpClient, IConfiguration configuration)
     {
-        _httpClient = httpClient;
-        _accountSid = configuration["Twilio:AccountSid"] 
-            ?? throw new InvalidOperationException("Twilio:AccountSid not configured");
-        _authToken = configuration["Twilio:AuthToken"] 
-            ?? throw new InvalidOperationException("Twilio:AuthToken not configured");
-        _from = configuration["Twilio:From"] ?? "whatsapp:+14155238886";
+        // _httpClient = httpClient;
+        // _accountSid = configuration["Twilio:AccountSid"] 
+        //     ?? throw new InvalidOperationException("Twilio:AccountSid not configured");
+        // _authToken = configuration["Twilio:AuthToken"] 
+        //     ?? throw new InvalidOperationException("Twilio:AuthToken not configured");
+        // _from = configuration["Twilio:From"] ?? "whatsapp:+14155238886";
         
-        var authBytes = Encoding.ASCII.GetBytes($"{_accountSid}:{_authToken}");
-        _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Basic", Convert.ToBase64String(authBytes));
+        // var authBytes = Encoding.ASCII.GetBytes($"{_accountSid}:{_authToken}");
+        // _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+        //     "Basic", Convert.ToBase64String(authBytes));
     }
 
     public async Task<SendMessageResult> SendMessageAsync(string toPhoneE164, string message, Guid companyId)

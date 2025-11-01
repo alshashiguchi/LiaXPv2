@@ -1,18 +1,24 @@
 ﻿using LiaXP.Domain.Entities;
+using System.Security.Claims;
 
 namespace LiaXP.Domain.Interfaces;
 
+/// <summary>
+/// Service for generating and validating JWT tokens
+/// IMPORTANT: Tokens include CompanyId (GUID) not CompanyCode (string)
+/// </summary>
 public interface ITokenService
 {
-    string GenerateToken(User user);
-    TokenValidationResult ValidateToken(string token);
-}
+    /// <summary>
+    /// Generate JWT token for authenticated user
+    /// </summary>
+    /// <param name="user">Authenticated user</param>
+    /// <param name="companyCode">Company code for display (optional - for backwards compatibility)</param>
+    /// <returns>JWT token string</returns>
+    string GenerateToken(User user, string? companyCode = null);
 
-public class TokenValidationResult
-{
-    public bool IsValid { get; set; }
-    public Guid? UserId { get; set; }
-    public string? CompanyCode { get; set; }
-    public string? Role { get; set; }
-    public string? ErrorMessage { get; set; }
+    /// <summary>
+    /// Validate JWT token
+    /// </summary>
+    ClaimsPrincipal? ValidateToken(string token);
 }

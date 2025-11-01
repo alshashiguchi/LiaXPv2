@@ -4,27 +4,36 @@ using Microsoft.Extensions.Logging;
 
 namespace LiaXP.Application.UseCases.Auth;
 
+/// <summary>
+/// Use case for user login/authentication
+/// Handles CompanyCode (string) to CompanyId (GUID) conversion
+/// </summary>
 public interface ILoginUseCase
 {
-    Task<Result<LoginResponse>> ExecuteAsync(LoginRequest request, CancellationToken cancellationToken = default);
+    Task<Result<LoginResponse>> ExecuteAsync(
+        LoginRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public class LoginUseCase : ILoginUseCase
 {
     private readonly IUserRepository _userRepository;
+    private readonly ICompanyResolver _companyResolver;
+    private readonly ITokenService _jwtService;
     private readonly IPasswordHasher _passwordHasher;
-    private readonly ITokenService _tokenService;
     private readonly ILogger<LoginUseCase> _logger;
 
     public LoginUseCase(
         IUserRepository userRepository,
+        ICompanyResolver companyResolver,
+        ITokenService jwtService,
         IPasswordHasher passwordHasher,
-        ITokenService tokenService,
         ILogger<LoginUseCase> logger)
     {
         _userRepository = userRepository;
+        _companyResolver = companyResolver;
+        _jwtService = jwtService;
         _passwordHasher = passwordHasher;
-        _tokenService = tokenService;
         _logger = logger;
     }
 
@@ -34,79 +43,125 @@ public class LoginUseCase : ILoginUseCase
     {
         try
         {
-            // Validar entrada
-            if (string.IsNullOrWhiteSpace(request.Email) ||
-                string.IsNullOrWhiteSpace(request.Password) ||
-                string.IsNullOrWhiteSpace(request.CompanyCode))
+            _logger.LogInformation(
+                "Login attempt | Email: {Email} | CompanyCode: {CompanyCode}",
+                request.Email,
+                request.CompanyCode);
+
+            // ✅ Step 1: Resolve CompanyCode (string) to CompanyId (GUID)
+            var companyId = await _companyResolver.GetCompanyIdAsync(
+                request.CompanyCode,
+                cancellationToken);
+
+            if (companyId == null)
             {
-                return Result<LoginResponse>.Failure("Email, senha e código da empresa são obrigatórios");
+                _logger.LogWarning(
+                    "Company not found | CompanyCode: {CompanyCode}",
+                    request.CompanyCode);
+
+                return Result<LoginResponse>.Failure(
+                    "Empresa não encontrada. Verifique o código da empresa.");
             }
 
-            // Buscar usuário
-            var user = await _userRepository.GetByEmailAsync(
-                request.Email.ToLowerInvariant(),
+            _logger.LogDebug(
+                "Company resolved | CompanyCode: {CompanyCode} | CompanyId: {CompanyId}",
                 request.CompanyCode,
+                companyId);
+
+            // ✅ Step 2: Get user by email and companyId (GUID)
+            var user = await _userRepository.GetByEmailAndCompanyAsync(
+                request.Email.ToLowerInvariant(),
+                companyId.Value,
                 cancellationToken);
 
             if (user == null)
             {
-                _logger.LogWarning("Tentativa de login com credenciais inválidas: {Email}", request.Email);
-                return Result<LoginResponse>.Failure("Credenciais inválidas");
+                _logger.LogWarning(
+                    "User not found | Email: {Email} | CompanyId: {CompanyId}",
+                    request.Email,
+                    companyId);
+
+                return Result<LoginResponse>.Failure(
+                    "Email ou senha incorretos.");
             }
 
-            // Verificar se está ativo
+            // ✅ Step 3: Validate user is active
             if (!user.IsActive)
             {
-                _logger.LogWarning("Tentativa de login com usuário inativo: {Email}", request.Email);
-                return Result<LoginResponse>.Failure("Usuário inativo");
+                _logger.LogWarning(
+                    "Inactive user login attempt | UserId: {UserId}",
+                    user.Id);
+
+                return Result<LoginResponse>.Failure(
+                    "Usuário inativo. Entre em contato com o administrador.");
             }
 
-            // Verificar senha
+            // ✅ Step 4: Verify password
             if (!_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
             {
-                _logger.LogWarning("Senha incorreta para usuário: {Email}", request.Email);
-                return Result<LoginResponse>.Failure("Credenciais inválidas");
+                _logger.LogWarning(
+                    "Invalid password | UserId: {UserId}",
+                    user.Id);
+
+                return Result<LoginResponse>.Failure(
+                    "Email ou senha incorretos.");
             }
 
-            // Atualizar último login
+            // ✅ Step 5: Update last login timestamp
             user.UpdateLastLogin();
             await _userRepository.UpdateAsync(user, cancellationToken);
 
-            // Gerar token
-            var token = _tokenService.GenerateToken(user);
+            // ✅ Step 6: Generate JWT token (with CompanyId GUID in claims)
+            // CompanyCode is passed for optional display in token
+            var token = _jwtService.GenerateToken(user, request.CompanyCode);
 
+            _logger.LogInformation(
+                "Login successful | UserId: {UserId} | CompanyId: {CompanyId} | Role: {Role}",
+                user.Id,
+                user.CompanyId,
+                user.Role);
+
+            // ✅ Step 7: Build response with both CompanyId and CompanyCode
             var response = new LoginResponse
             {
-                AccessToken = token,
-                TokenType = "Bearer",
-                ExpiresIn = 3600,
+                Token = token,
                 User = new UserInfo
                 {
                     Id = user.Id,
+                    CompanyId = user.CompanyId,           // ✅ Technical ID
+                    CompanyCode = request.CompanyCode,    // ✅ Business code (display)
                     Email = user.Email,
                     FullName = user.FullName,
                     Role = user.Role.ToString(),
-                    CompanyCode = user.CompanyCode
+                    IsActive = user.IsActive
                 }
             };
 
-            _logger.LogInformation("Login bem-sucedido para usuário: {Email}", request.Email);
             return Result<LoginResponse>.Success(response);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao processar login para {Email}", request.Email);
-            return Result<LoginResponse>.Failure("Erro ao processar login");
+            _logger.LogError(
+                ex,
+                "Error during login | Email: {Email} | CompanyCode: {CompanyCode}",
+                request.Email,
+                request.CompanyCode);
+
+            return Result<LoginResponse>.Failure(
+                "Erro ao processar login. Tente novamente.");
         }
     }
 }
 
-// Helper class para retorno de resultados
+// ============================================================================
+// Result Helper
+// ============================================================================
+
 public class Result<T>
 {
-    public bool IsSuccess { get; }
-    public T? Data { get; }
-    public string? ErrorMessage { get; }
+    public bool IsSuccess { get; private set; }
+    public T? Data { get; private set; }
+    public string? ErrorMessage { get; private set; }
 
     private Result(bool isSuccess, T? data, string? errorMessage)
     {

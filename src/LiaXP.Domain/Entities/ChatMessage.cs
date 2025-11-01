@@ -1,35 +1,79 @@
-﻿using LiaXP.Domain.Enums;
+﻿using LiaXP.Domain.Common;
+using LiaXP.Domain.Enums;
 
 namespace LiaXP.Domain.Entities;
 
-public class ChatMessage
+/// <summary>
+/// Chat message entity - stores conversation history between users and AI assistant
+/// </summary>
+public class ChatMessage : BaseEntity
 {
-    public Guid Id { get; private set; }
-    public string CompanyCode { get; private set; }
-    public Guid UserId { get; private set; }
-    public string UserMessage { get; private set; }
-    public string AssistantResponse { get; private set; }
-    public IntentType Intent { get; private set; }
-    public DateTime CreatedAt { get; private set; }
-    public Dictionary<string, string> Metadata { get; private set; }
+    /// <summary>
+    /// Foreign key to Company (technical key)
+    /// </summary>
+    public Guid CompanyId { get; private set; }
 
+    /// <summary>
+    /// Foreign key to User
+    /// </summary>
+    public Guid UserId { get; private set; }
+
+    /// <summary>
+    /// User's message content
+    /// </summary>
+    public string UserMessage { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// AI assistant's response
+    /// </summary>
+    public string AssistantResponse { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Detected intent type
+    /// </summary>
+    public IntentType Intent { get; private set; }
+
+    /// <summary>
+    /// Additional metadata as JSON
+    /// Can include: model used, tokens, execution time, etc.
+    /// </summary>
+    public string? Metadata { get; private set; }
+
+    // Navigation properties
+    public virtual Company Company { get; set; } = null!;
+    public virtual User User { get; set; } = null!;
+
+    // EF Core constructor
     private ChatMessage() { }
 
+    /// <summary>
+    /// Create a new chat message
+    /// </summary>
     public ChatMessage(
-        string companyCode,
+        Guid companyId,
         Guid userId,
         string userMessage,
         string assistantResponse,
         IntentType intent,
-        Dictionary<string, string>? metadata = null)
+        string? metadata = null)
     {
-        Id = Guid.NewGuid();
-        CompanyCode = companyCode;
+        if (companyId == Guid.Empty)
+            throw new ArgumentException("Company ID cannot be empty", nameof(companyId));
+
+        if (userId == Guid.Empty)
+            throw new ArgumentException("User ID cannot be empty", nameof(userId));
+
+        if (string.IsNullOrWhiteSpace(userMessage))
+            throw new ArgumentException("User message cannot be empty", nameof(userMessage));
+
+        if (string.IsNullOrWhiteSpace(assistantResponse))
+            throw new ArgumentException("Assistant response cannot be empty", nameof(assistantResponse));
+
+        CompanyId = companyId;
         UserId = userId;
-        UserMessage = userMessage;
-        AssistantResponse = assistantResponse;
+        UserMessage = userMessage.Trim();
+        AssistantResponse = assistantResponse.Trim();
         Intent = intent;
-        CreatedAt = DateTime.UtcNow;
-        Metadata = metadata ?? new Dictionary<string, string>();
+        Metadata = metadata;
     }
 }

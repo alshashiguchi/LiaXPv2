@@ -10,32 +10,65 @@ namespace LiaXP.Infrastructure.Services;
 
 public class JwtTokenService : ITokenService
 {
-    private readonly IConfiguration _configuration;
-    private readonly string _signingKey;
     private readonly string _issuer;
     private readonly string _audience;
+    private readonly string _signingKey;
+    private readonly int _accessTokenTtlMinutes;
 
     public JwtTokenService(IConfiguration configuration)
     {
-        _configuration = configuration;
-        _signingKey = configuration["Jwt:SigningKey"]
-            ?? throw new InvalidOperationException("JWT SigningKey not configured");
-        _issuer = configuration["Jwt:Issuer"] ?? "LiaXP";
-        _audience = configuration["Jwt:Audience"] ?? "LiaXP-Api";
+        _issuer = configuration["JWT:Issuer"]
+            ?? throw new InvalidOperationException("Issuer not configured");
+
+        _audience = configuration["JWT:Audience"]
+            ?? throw new InvalidOperationException("Audience not configured");
+
+        _signingKey = configuration["JWT:SigningKey"]
+            ?? throw new InvalidOperationException("SigningKey not configured");
+
+        if (!int.TryParse(configuration["JWT:AccessTokenTTLMinutes"], out _accessTokenTtlMinutes))
+        {
+            _accessTokenTtlMinutes = 30; // Default 30 minutes
+        }
+
+        if (_signingKey.Length < 32)
+        {
+            throw new InvalidOperationException("SigningKey must be at least 32 characters");
+        }
     }
 
-    public string GenerateToken(User user)
+    public string GenerateToken(User user, string? companyCode = null)
     {
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email),
-            new Claim(JwtRegisteredClaimNames.Name, user.FullName),
+            // User identification
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim("user_id", user.Id.ToString()),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim("email", user.Email),
+            new Claim(ClaimTypes.Name, user.FullName),
+            new Claim("full_name", user.FullName),
+            
+            // Company identification - CRITICAL: Use CompanyId (GUID) not CompanyCode
+            new Claim("company_id", user.CompanyId.ToString()),
+            new Claim("CompanyId", user.CompanyId.ToString()), // Alternative claim name
+            
+            // Role
             new Claim(ClaimTypes.Role, user.Role.ToString()),
-            new Claim("company_code", user.CompanyCode),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
+            new Claim("role", user.Role.ToString()),
+            
+            // Issued at
+            new Claim(JwtRegisteredClaimNames.Iat,
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),
+                ClaimValueTypes.Integer64)
         };
+
+        // OPTIONAL: Include CompanyCode for display purposes only
+        // This should NOT be used for authorization logic - use company_id instead
+        if (!string.IsNullOrEmpty(companyCode))
+        {
+            claims.Add(new Claim("company_code", companyCode));
+        }
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_signingKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -44,22 +77,21 @@ public class JwtTokenService : ITokenService
             issuer: _issuer,
             audience: _audience,
             claims: claims,
-            notBefore: DateTime.UtcNow,
-            expires: DateTime.UtcNow.AddHours(1),
+            expires: DateTime.UtcNow.AddMinutes(_accessTokenTtlMinutes),
             signingCredentials: credentials
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public Domain.Interfaces.TokenValidationResult ValidateToken(string token)
+    public ClaimsPrincipal? ValidateToken(string token)
     {
+        var tokenHandler = new JwtSecurityTokenHandler();
+        var key = Encoding.UTF8.GetBytes(_signingKey);
+
         try
         {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(_signingKey);
-
-            var validationParameters = new TokenValidationParameters
+            var principal = tokenHandler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(key),
@@ -69,25 +101,13 @@ public class JwtTokenService : ITokenService
                 ValidAudience = _audience,
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.Zero
-            };
+            }, out SecurityToken validatedToken);
 
-            var principal = tokenHandler.ValidateToken(token, validationParameters, out _);
-
-            return new Domain.Interfaces.TokenValidationResult
-            {
-                IsValid = true,
-                UserId = Guid.Parse(principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? string.Empty),
-                CompanyCode = principal.FindFirst("company_code")?.Value,
-                Role = principal.FindFirst(ClaimTypes.Role)?.Value
-            };
+            return principal;
         }
-        catch (Exception ex)
+        catch
         {
-            return new Domain.Interfaces.TokenValidationResult
-            {
-                IsValid = false,
-                ErrorMessage = ex.Message
-            };
+            return null;
         }
     }
 }

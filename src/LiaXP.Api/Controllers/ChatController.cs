@@ -1,37 +1,42 @@
+ï»¿using LiaXP.Application.DTOs.Chat;
+using LiaXP.Application.UseCases.Chat;
+using LiaXP.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using LiaXP.Application.UseCases;
-using LiaXP.Application.DTOs.Chat;
-using System.Security.Claims;
 
 namespace LiaXP.Api.Controllers;
 
-[Authorize(Roles = "Admin")]
+/// <summary>
+/// Chat controller for AI assistant interactions
+/// FIXED: Now uses CompanyId (GUID) from JWT instead of CompanyCode
+/// </summary>
+[Authorize]
 [ApiController]
-[Route("admin/chat-simulator")]
-public class ChatController : ControllerBase
+[Route("api/chat")]
+[Produces("application/json")]
+public class ChatController : BaseAuthenticatedController
 {
-    private readonly ProcessChatMessageUseCase _processChatUseCase;
+    private readonly IProcessChatMessageUseCase _processChatUseCase;
+    private readonly ICompanyResolver _companyResolver;
     private readonly ILogger<ChatController> _logger;
 
     public ChatController(
-        ProcessChatMessageUseCase processChatUseCase,
+        IProcessChatMessageUseCase processChatUseCase,
+        ICompanyResolver companyResolver,
         ILogger<ChatController> logger)
     {
         _processChatUseCase = processChatUseCase;
+        _companyResolver = companyResolver;
         _logger = logger;
     }
 
     /// <summary>
-    /// Simula conversa WhatsApp para testes
+    /// Process a chat message with the AI assistant
     /// </summary>
-    /// <param name="request">Mensagem do usuário</param>
-    /// <param name="cancellationToken">Token de cancelamento</param>
-    /// <returns>Resposta da IA</returns>
-    /// <response code="200">Mensagem processada com sucesso</response>
-    /// <response code="400">Requisição inválida</response>
-    /// <response code="401">Não autenticado</response>
-    [HttpPost]
+    /// <param name="request">Chat message request</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>AI assistant response</returns>
+    [HttpPost("message")]
     [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -44,20 +49,37 @@ public class ChatController : ControllerBase
             return BadRequest(new ProblemDetails
             {
                 Status = StatusCodes.Status400BadRequest,
-                Title = "Requisição inválida",
-                Detail = "A mensagem não pode estar vazia"
+                Title = "RequisiÃ§Ã£o invÃ¡lida",
+                Detail = "A mensagem nÃ£o pode estar vazia"
             });
         }
 
         try
         {
+            // âœ… FIXED: Get CompanyId (GUID) from JWT token
             var userId = GetUserId();
-            var companyCode = GetCompanyCode();
+            var companyId = GetCompanyId();
 
+            _logger.LogInformation(
+                "Processing chat message | UserId: {UserId} | CompanyId: {CompanyId}",
+                userId,
+                companyId);
+
+            // âœ… OPTIONAL: Get CompanyCode for logging/display
+            var companyCode = await _companyResolver.GetCompanyCodeAsync(
+                companyId,
+                cancellationToken);
+
+            _logger.LogDebug(
+                "Resolved CompanyCode | CompanyId: {CompanyId} | CompanyCode: {CompanyCode}",
+                companyId,
+                companyCode);
+
+            // Execute use case with CompanyId (GUID)
             var result = await _processChatUseCase.ExecuteAsync(
                 request,
                 userId,
-                companyCode,
+                companyId,  // âœ… Pass CompanyId (GUID) not CompanyCode
                 cancellationToken);
 
             if (!result.IsSuccess)
@@ -74,17 +96,25 @@ public class ChatController : ControllerBase
         }
         catch (UnauthorizedAccessException ex)
         {
-            _logger.LogWarning(ex, "Unauthorized access attempt");
+            _logger.LogWarning(
+                ex,
+                "Unauthorized access attempt | Message: {Message}",
+                ex.Message);
+
             return Unauthorized(new ProblemDetails
             {
                 Status = StatusCodes.Status401Unauthorized,
-                Title = "Não autorizado",
+                Title = "NÃ£o autorizado",
                 Detail = ex.Message
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing chat message");
+            _logger.LogError(
+                ex,
+                "Error processing chat message | UserId: {UserId}",
+                GetUserId());
+
             return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
             {
                 Status = StatusCodes.Status500InternalServerError,
@@ -94,15 +124,42 @@ public class ChatController : ControllerBase
         }
     }
 
-    private Guid GetUserId()
+    /// <summary>
+    /// Get chat history for the authenticated user
+    /// </summary>
+    [HttpGet("history")]
+    [ProducesResponseType(typeof(List<ChatHistoryItem>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetChatHistory(
+        [FromQuery] int limit = 50,
+        CancellationToken cancellationToken = default)
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return Guid.Parse(userIdClaim ?? throw new UnauthorizedAccessException("User ID não encontrado"));
-    }
+        try
+        {
+            var userId = GetUserId();
+            var companyId = GetCompanyId();
 
-    private string GetCompanyCode()
-    {
-        return User.FindFirst("company_code")?.Value
-            ?? throw new UnauthorizedAccessException("Company code não encontrado");
+            var history = await _processChatUseCase.GetHistoryAsync(
+                userId,
+                companyId,
+                limit,
+                cancellationToken);
+
+            return Ok(history);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Unauthorized access to chat history");
+            return Unauthorized(new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "NÃ£o autorizado",
+                Detail = ex.Message
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving chat history");
+            return StatusCode(StatusCodes.Status500InternalServerError);
+        }
     }
 }

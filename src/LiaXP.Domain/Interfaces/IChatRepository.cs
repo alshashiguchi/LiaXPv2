@@ -22,6 +22,15 @@ public interface IChatRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Get chat history for a specific user (most recent first)
+    /// </summary>
+    Task<List<ChatMessage>> GetByUserAndCompanyAsync(
+        Guid userId,
+        Guid companyId,
+        int limit = 10,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Get chat history for an entire company
     /// </summary>
     Task<List<ChatMessage>> GetCompanyHistoryAsync(

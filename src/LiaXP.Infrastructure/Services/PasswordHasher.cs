@@ -1,65 +1,79 @@
-﻿using LiaXP.Domain.Interfaces;
+﻿using System.Security.Cryptography;
+using LiaXP.Domain.Interfaces;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
-using System.Security.Cryptography;
 
 namespace LiaXP.Infrastructure.Services;
 
+/// <summary>
+/// Implementation of password hasher using PBKDF2-HMACSHA256
+/// Format: {iterations}.{salt}.{hash}
+/// </summary>
 public class PasswordHasher : IPasswordHasher
 {
-    private const int SaltSize = 16; // 128 bits
-    private const int HashSize = 32; // 256 bits
-    private const int Iterations = 100000;
+    private const int SaltSize = 128 / 8; // 128 bits
+    private const int HashSize = 256 / 8; // 256 bits
+    private const int Iterations = 100000; // OWASP recommended minimum
 
     public string HashPassword(string password)
     {
-        // Gerar salt
-        var salt = RandomNumberGenerator.GetBytes(SaltSize);
+        if (string.IsNullOrEmpty(password))
+            throw new ArgumentException("Password cannot be empty", nameof(password));
 
-        // Hash da senha
-        var hash = KeyDerivation.Pbkdf2(
+        // Generate a random salt
+        byte[] salt = new byte[SaltSize];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(salt);
+        }
+
+        // Hash the password with the salt
+        byte[] hash = KeyDerivation.Pbkdf2(
             password: password,
             salt: salt,
             prf: KeyDerivationPrf.HMACSHA256,
             iterationCount: Iterations,
-            numBytesRequested: HashSize);
+            numBytesRequested: HashSize
+        );
 
-        // Combinar salt + hash
-        var hashBytes = new byte[SaltSize + HashSize];
-        Array.Copy(salt, 0, hashBytes, 0, SaltSize);
-        Array.Copy(hash, 0, hashBytes, SaltSize, HashSize);
-
-        // Retornar como Base64
-        return Convert.ToBase64String(hashBytes);
+        // Format: {iterations}.{salt}.{hash}
+        // This allows for future algorithm upgrades
+        return $"{Iterations}.{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
     }
 
-    public bool VerifyPassword(string password, string passwordHash)
+    public bool VerifyPassword(string password, string hashedPassword)
     {
+        if (string.IsNullOrEmpty(password))
+            return false;
+
+        if (string.IsNullOrEmpty(hashedPassword))
+            return false;
+
         try
         {
-            // Extrair salt e hash
-            var hashBytes = Convert.FromBase64String(passwordHash);
-            var salt = new byte[SaltSize];
-            Array.Copy(hashBytes, 0, salt, 0, SaltSize);
+            // Parse the hashed password
+            var parts = hashedPassword.Split('.');
+            if (parts.Length != 3)
+                return false;
 
-            // Hash da senha fornecida
-            var hash = KeyDerivation.Pbkdf2(
+            var iterations = int.Parse(parts[0]);
+            var salt = Convert.FromBase64String(parts[1]);
+            var hash = Convert.FromBase64String(parts[2]);
+
+            // Hash the provided password with the same salt
+            byte[] computedHash = KeyDerivation.Pbkdf2(
                 password: password,
                 salt: salt,
                 prf: KeyDerivationPrf.HMACSHA256,
-                iterationCount: Iterations,
-                numBytesRequested: HashSize);
+                iterationCount: iterations,
+                numBytesRequested: hash.Length
+            );
 
-            // Comparar hashes
-            for (int i = 0; i < HashSize; i++)
-            {
-                if (hashBytes[i + SaltSize] != hash[i])
-                    return false;
-            }
-
-            return true;
+            // Compare hashes in constant time to prevent timing attacks
+            return CryptographicOperations.FixedTimeEquals(computedHash, hash);
         }
         catch
         {
+            // Invalid format or conversion error
             return false;
         }
     }

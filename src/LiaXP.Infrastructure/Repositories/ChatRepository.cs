@@ -33,16 +33,16 @@ public class ChatRepository : IChatRepository
         using var connection = new SqlConnection(_connectionString);
 
         const string sql = @"
-            INSERT INTO ChatMessages (
-                Id, CompanyCode, UserId, UserMessage, AssistantResponse, 
+            INSERT INTO ChatMessage (
+                Id, CompanyId, UserId, UserMessage, AssistantResponse, 
                 Intent, CreatedAt, Metadata
             )
             VALUES (
-                @Id, @CompanyCode, @UserId, @UserMessage, @AssistantResponse,
+                @Id, @CompanyId, @UserId, @UserMessage, @AssistantResponse,
                 @Intent, @CreatedAt, @Metadata
             )";
 
-        var metadata = message.Metadata != null && message.Metadata.Count > 0
+        var metadata = message.Metadata != null
             ? JsonSerializer.Serialize(message.Metadata)
             : null;
 
@@ -52,7 +52,7 @@ public class ChatRepository : IChatRepository
                 new
                 {
                     message.Id,
-                    message.CompanyCode,
+                    message.CompanyId,
                     message.UserId,
                     message.UserMessage,
                     message.AssistantResponse,
@@ -80,9 +80,9 @@ public class ChatRepository : IChatRepository
 
         const string sql = @"
             SELECT TOP (@Limit)
-                Id, CompanyCode, UserId, UserMessage, AssistantResponse,
+                Id, CompanyId, UserId, UserMessage, AssistantResponse,
                 Intent, CreatedAt, Metadata
-            FROM ChatMessages
+            FROM ChatMessage
             WHERE UserId = @UserId
             ORDER BY CreatedAt DESC";
 
@@ -90,6 +90,33 @@ public class ChatRepository : IChatRepository
             new CommandDefinition(
                 sql,
                 new { UserId = userId, Limit = limit },
+                cancellationToken: cancellationToken
+            )
+        );
+
+        return rows.Select(MapToEntity).ToList();
+    }
+
+    public async Task<List<ChatMessage>> GetByUserAndCompanyAsync(
+    Guid userId,
+    Guid companyId,
+    int limit = 10,
+    CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqlConnection(_connectionString);
+
+        const string sql = @"
+            SELECT TOP (@Limit)
+                Id, CompanyId, UserId, UserMessage, AssistantResponse,
+                Intent, CreatedAt, Metadata
+            FROM ChatMessage
+            WHERE UserId = @UserId
+            ORDER BY CreatedAt DESC";
+
+        var rows = await connection.QueryAsync<ChatMessageDto>(
+            new CommandDefinition(
+                sql,
+                new { UserId = userId, CompanyId = companyId, Limit = limit },
                 cancellationToken: cancellationToken
             )
         );
@@ -107,17 +134,17 @@ public class ChatRepository : IChatRepository
 
         const string sql = @"
             SELECT TOP (@Limit)
-                Id, CompanyCode, UserId, UserMessage, AssistantResponse,
+                Id, CompanyId, UserId, UserMessage, AssistantResponse,
                 Intent, CreatedAt, Metadata
-            FROM ChatMessages
-            WHERE CompanyCode = @CompanyCode
+            FROM ChatMessage
+            WHERE CompanyId = @CompanyId
               AND (@Since IS NULL OR CreatedAt >= @Since)
             ORDER BY CreatedAt DESC";
 
         var rows = await connection.QueryAsync<ChatMessageDto>(
             new CommandDefinition(
                 sql,
-                new { CompanyCode = companyCode, Since = since, Limit = limit },
+                new { CompanyId = companyCode, Since = since, Limit = limit },
                 cancellationToken: cancellationToken
             )
         );
@@ -135,10 +162,10 @@ public class ChatRepository : IChatRepository
 
         const string sql = @"
             SELECT TOP (@Limit)
-                Id, CompanyCode, UserId, UserMessage, AssistantResponse,
+                Id, CompanyId, UserId, UserMessage, AssistantResponse,
                 Intent, CreatedAt, Metadata
-            FROM ChatMessages
-            WHERE CompanyCode = @CompanyCode
+            FROM ChatMessage
+            WHERE CompanyId = @CompanyId
               AND (
                 UserMessage LIKE @SearchPattern
                 OR AssistantResponse LIKE @SearchPattern
@@ -150,7 +177,7 @@ public class ChatRepository : IChatRepository
         var rows = await connection.QueryAsync<ChatMessageDto>(
             new CommandDefinition(
                 sql,
-                new { CompanyCode = companyCode, SearchPattern = searchPattern, Limit = limit },
+                new { CompanyId = companyCode, SearchPattern = searchPattern, Limit = limit },
                 cancellationToken: cancellationToken
             )
         );
@@ -170,8 +197,8 @@ public class ChatRepository : IChatRepository
             SELECT 
                 Intent,
                 COUNT(*) as Count
-            FROM ChatMessages
-            WHERE CompanyCode = @CompanyCode
+            FROM ChatMessage
+            WHERE CompanyId = @CompanyId
               AND (@StartDate IS NULL OR CreatedAt >= @StartDate)
               AND (@EndDate IS NULL OR CreatedAt <= @EndDate)
             GROUP BY Intent
@@ -180,7 +207,7 @@ public class ChatRepository : IChatRepository
         var rows = await connection.QueryAsync<(int Intent, int Count)>(
             new CommandDefinition(
                 sql,
-                new { CompanyCode = companyCode, StartDate = startDate, EndDate = endDate },
+                new { CompanyId = companyCode, StartDate = startDate, EndDate = endDate },
                 cancellationToken: cancellationToken
             )
         );
@@ -200,14 +227,14 @@ public class ChatRepository : IChatRepository
 
         const string sql = @"
             SELECT COUNT(*)
-            FROM ChatMessages
-            WHERE CompanyCode = @CompanyCode
+            FROM ChatMessage
+            WHERE CompanyId = @CompanyId
               AND (@Since IS NULL OR CreatedAt >= @Since)";
 
         return await connection.ExecuteScalarAsync<int>(
             new CommandDefinition(
                 sql,
-                new { CompanyCode = companyCode, Since = since },
+                new { CompanyId = companyCode, Since = since },
                 cancellationToken: cancellationToken
             )
         );
@@ -220,7 +247,7 @@ public class ChatRepository : IChatRepository
         using var connection = new SqlConnection(_connectionString);
 
         const string sql = @"
-            DELETE FROM ChatMessages
+            DELETE FROM ChatMessage
             WHERE CreatedAt < @OlderThan";
 
         var deleted = await connection.ExecuteAsync(
@@ -254,8 +281,8 @@ public class ChatRepository : IChatRepository
 
         typeof(ChatMessage).GetProperty(nameof(ChatMessage.Id))!
             .SetValue(message, dto.Id);
-        typeof(ChatMessage).GetProperty(nameof(ChatMessage.CompanyCode))!
-            .SetValue(message, dto.CompanyCode);
+        typeof(ChatMessage).GetProperty(nameof(ChatMessage.CompanyId))!
+            .SetValue(message, dto.CompanyId);
         typeof(ChatMessage).GetProperty(nameof(ChatMessage.UserId))!
             .SetValue(message, dto.UserId);
         typeof(ChatMessage).GetProperty(nameof(ChatMessage.UserMessage))!
@@ -279,7 +306,7 @@ public class ChatRepository : IChatRepository
     private class ChatMessageDto
     {
         public Guid Id { get; set; }
-        public string CompanyCode { get; set; } = string.Empty;
+        public string CompanyId { get; set; } = string.Empty;
         public Guid UserId { get; set; }
         public string UserMessage { get; set; } = string.Empty;
         public string AssistantResponse { get; set; } = string.Empty;

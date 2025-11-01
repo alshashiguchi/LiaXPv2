@@ -11,10 +11,9 @@ using LiaXP.Application.UseCases;
 using Quartz;
 using LiaXP.Infrastructure.Cron;
 using LiaXP.Api.Jobs;
-using LiaXP.Infrastructure.Data.Repositories;
 using LiaXP.Application.UseCases.Auth;
-using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
 using Microsoft.OpenApi.Models;
+using LiaXP.Application.UseCases.Chat;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -333,6 +332,11 @@ builder.Services.AddScoped<IIntentRouter, IntentRouter>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IMessageLogRepository, MessageLogRepository>();
 
+builder.Services.AddScoped<ICompanyRepository, CompanyRepository>();
+builder.Services.AddScoped<ICompanyResolver, CompanyResolver>();
+builder.Services.AddScoped<IProcessChatMessageUseCase, ProcessChatMessageUseCase>();
+builder.Services.AddMemoryCache(); // Para cache do resolver
+
 // HttpClient para OpenAI
 builder.Services.AddHttpClient<OpenAIService>();
 
@@ -349,7 +353,7 @@ else
 
 // Register Use Cases
 builder.Services.AddScoped<ImportDataUseCase>();
-builder.Services.AddScoped<ProcessChatMessageUseCase>();
+//builder.Services.AddScoped<ProcessChatMessageUseCase>();
 builder.Services.AddScoped<ILoginUseCase, LoginUseCase>();
 
 var app = builder.Build();
@@ -381,74 +385,74 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Company Scope Middleware
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path.Value?.ToLower() ?? "";
+//// Company Scope Middleware
+//app.Use(async (context, next) =>
+//{
+//    var path = context.Request.Path.Value?.ToLower() ?? "";
 
-    // Public paths that don't require company scope
-    var publicPaths = new[] { "/healthz", "/auth/token", "/webhook/whatsapp", "/swagger" };
+//    // Public paths that don't require company scope
+//    var publicPaths = new[] { "/healthz", "/auth/token", "/webhook/whatsapp", "/swagger" };
 
-    if (publicPaths.Any(p => path.StartsWith(p)))
-    {
-        await next();
-        return;
-    }
+//    if (publicPaths.Any(p => path.StartsWith(p)))
+//    {
+//        await next();
+//        return;
+//    }
 
-    string? companyCode = null;
+//    string? companyCode = null;
 
-    // ✅ PRIORITY 1: Try to get from JWT claims (for authenticated requests)
-    if (context.User?.Identity?.IsAuthenticated == true)
-    {
-        companyCode = context.User.FindFirst("company_code")?.Value;
+//    // ✅ PRIORITY 1: Try to get from JWT claims (for authenticated requests)
+//    if (context.User?.Identity?.IsAuthenticated == true)
+//    {
+//        companyCode = context.User.FindFirst("company_code")?.Value;
 
-        if (!string.IsNullOrEmpty(companyCode))
-        {
-            context.Items["CompanyCode"] = companyCode;
+//        if (!string.IsNullOrEmpty(companyCode))
+//        {
+//            context.Items["CompanyCode"] = companyCode;
 
-            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-            logger.LogDebug(
-                "✅ Company scope set from JWT | CompanyCode: {CompanyCode} | Path: {Path}",
-                companyCode,
-                path);
+//            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+//            logger.LogDebug(
+//                "✅ Company scope set from JWT | CompanyCode: {CompanyCode} | Path: {Path}",
+//                companyCode,
+//                path);
 
-            await next();
-            return;
-        }
-    }
+//            await next();
+//            return;
+//        }
+//    }
 
-    // ✅ PRIORITY 2: Try X-Company-Code header (for webhooks, public APIs)
-    companyCode = context.Request.Headers["X-Company-Code"].FirstOrDefault()
-                  ?? context.Request.Query["companyCode"].FirstOrDefault();
+//    // ✅ PRIORITY 2: Try X-Company-Code header (for webhooks, public APIs)
+//    companyCode = context.Request.Headers["X-Company-Code"].FirstOrDefault()
+//                  ?? context.Request.Query["companyCode"].FirstOrDefault();
 
-    if (!string.IsNullOrEmpty(companyCode))
-    {
-        context.Items["CompanyCode"] = companyCode;
+//    if (!string.IsNullOrEmpty(companyCode))
+//    {
+//        context.Items["CompanyCode"] = companyCode;
 
-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        logger.LogDebug(
-            "✅ Company scope set from header | CompanyCode: {CompanyCode} | Path: {Path}",
-            companyCode,
-            path);
+//        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+//        logger.LogDebug(
+//            "✅ Company scope set from header | CompanyCode: {CompanyCode} | Path: {Path}",
+//            companyCode,
+//            path);
 
-        await next();
-        return;
-    }
+//        await next();
+//        return;
+//    }
 
-    // ❌ No company code found - reject request
-    var loggerError = context.RequestServices.GetRequiredService<ILogger<Program>>();
-    loggerError.LogWarning(
-        "⚠️  Missing company scope | Path: {Path} | Authenticated: {IsAuthenticated}",
-        path,
-        context.User?.Identity?.IsAuthenticated);
+//    // ❌ No company code found - reject request
+//    var loggerError = context.RequestServices.GetRequiredService<ILogger<Program>>();
+//    loggerError.LogWarning(
+//        "⚠️  Missing company scope | Path: {Path} | Authenticated: {IsAuthenticated}",
+//        path,
+//        context.User?.Identity?.IsAuthenticated);
 
-    context.Response.StatusCode = 401;
-    await context.Response.WriteAsJsonAsync(new
-    {
-        error = "Company identification required",
-        details = "Company code must be provided via JWT token (company_code claim) or X-Company-Code header"
-    });
-});
+//    context.Response.StatusCode = 401;
+//    await context.Response.WriteAsJsonAsync(new
+//    {
+//        error = "Company identification required",
+//        details = "Company code must be provided via JWT token (company_code claim) or X-Company-Code header"
+//    });
+//});
 
 app.MapControllers();
 
